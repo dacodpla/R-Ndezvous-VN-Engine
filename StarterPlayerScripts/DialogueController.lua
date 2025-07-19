@@ -12,7 +12,7 @@ local characters = {
 	Books = {
 		model = workspace:WaitForChild("Takumi bedroom"):WaitForChild("books")
 	},
-	Door = {
+	sDoor = {
 		model = workspace:WaitForChild("Takumi bedroom"):WaitForChild("Door")
 	},
 	Beanz = {
@@ -54,11 +54,13 @@ local FacePresets = ReplicatedStorage:WaitForChild("FacePresets")
 local activeDialogueTracks = {}
 local cachedTracks = {}
 local originalRotations = {}
+local originalFaces = {}
+
 
 local BGMHandler = require(ReplicatedStorage:WaitForChild("BGMHandler"))
 BGMHandler.PlayPersistent("Main")
 
--- ?? Play a short typing sound (one-shot)
+-- 🔊 Play a short typing sound (one-shot)
 local function playTypeSound(soundName)
 	if not soundName then return end
 	local template = typeSoundFolder:FindFirstChild(soundName)
@@ -132,6 +134,11 @@ local function setFace(characterModel, faceName)
 		return
 	end
 
+	-- 🌟 Save original face texture (only once)
+	if not originalFaces[characterModel] then
+		originalFaces[characterModel] = existingDecal.Texture
+	end
+
 	local preset = FacePresets:FindFirstChild(faceName or "default")
 	if preset and preset:IsA("Decal") then
 		existingDecal.Texture = preset.Texture
@@ -141,16 +148,27 @@ local function setFace(characterModel, faceName)
 	end
 end
 
-local function getAnimationId(speaker, animName)
-	local charFolder = animFolder:FindFirstChild(speaker)
-	if not charFolder then
-		warn("No animation folder for character:", speaker)
+-- 🌍 Share for ModeManager reset
+_G.OriginalDialogueFaces = originalFaces
+
+local function getAnimationId(characterName, animName)
+	-- Remap player's model name (e.g. "beanzonyon") to "Takumi"
+	for name, data in pairs(characters) do
+		if data.model and data.model.Name == characterName and name == "Takumi" then
+			characterName = "Takumi"
+			break
+		end
+	end
+
+	local animFolder = ReplicatedStorage:WaitForChild("Animations"):FindFirstChild(characterName)
+	if not animFolder then
+		warn("Animation folder not found for", characterName)
 		return nil
 	end
 
-	local anim = charFolder:FindFirstChild(animName)
-	if not anim or not anim:IsA("Animation") then
-		warn("Animation", animName, "not found for", speaker)
+	local anim = animFolder:FindFirstChild(animName)
+	if not anim then
+		warn("Animation", animName, "not found in", characterName)
 		return nil
 	end
 
@@ -203,6 +221,15 @@ local function preloadAnimation(characterName, characterModel, animName)
 	return track
 end
 
+local function getAnimationFolderName(speaker)
+	if speaker == player.Name then
+		return "Takumi"
+	else
+		return speaker
+	end
+end
+
+
 local function playAnimation(characterModel, animName)
 	if not animName then return end
 
@@ -245,9 +272,14 @@ local function playAnimation(characterModel, animName)
 
 	-- Stop all previous animations
 
-	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-		if not CollectionService:HasTag(track, "PersistentAnimation") then
-			track:Stop()
+	for _, otherTrack in ipairs(animator:GetPlayingAnimationTracks()) do
+		local isPersistent = CollectionService:HasTag(otherTrack, "PersistentAnimation")
+
+		-- ❗ Special rule for Takumi: stop everything (even persistent)
+		local isTakumi = (characterName == player.Name or characterName == "Takumi")
+
+		if isTakumi or not isPersistent then
+			otherTrack:Stop()
 		end
 	end
 
@@ -256,8 +288,6 @@ local function playAnimation(characterModel, animName)
 	activeDialogueTracks[characterName] = track
 	return track
 end
-
-
 
 local function playIdleAnimations()
 	for name, data in pairs(characters) do
@@ -294,17 +324,17 @@ local function playIdleAnimations()
 	end
 end
 
--- ??? Wait for click or spacebar input
+-- 🖱️ Wait for click or spacebar input
 local function waitForInput()
 	local proceed = false
 
-	-- ?? Capture click
+	-- 👆 Capture click
 	local clickConnection = clickArea.MouseButton1Click:Connect(function()
 		print("Click received")
 		proceed = true
 	end)
 
-	-- ?? Capture spacebar press
+	-- ⌨️ Capture spacebar press
 	local keyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if not gameProcessed and input.KeyCode == Enum.KeyCode.Space then
 			print("Spacebar received")
@@ -315,12 +345,12 @@ local function waitForInput()
 	-- Wait for either input
 	repeat task.wait() until proceed
 
-	-- ?? Disconnect listeners
+	-- 🔌 Disconnect listeners
 	clickConnection:Disconnect()
 	keyConnection:Disconnect()
 end
 
--- ?? Run the full dialogue list
+-- ▶️ Run the full dialogue list
 local function runDialogue(dialogueData)
 	if not dialogueData or typeof(dialogueData) ~= "table" then
 		warn("[DialogueController] Invalid dialogueData")
@@ -339,7 +369,7 @@ local function runDialogue(dialogueData)
 		local line = dialogueData[i]
 		local player = Players.LocalPlayer
 
-		-- ?? TRANSITION
+		-- 🛑 TRANSITION
 		if line.transition and _G.PlayBlackTransition then
 			_G.PlayBlackTransition(line.transition)
 			task.wait(0.6)
@@ -347,7 +377,7 @@ local function runDialogue(dialogueData)
 			continue
 		end
 
-		-- ?? TELEPORT
+		-- 🚪 TELEPORT
 		if line.teleport then
 			local data = line.teleport
 			local char = player.Character or player.CharacterAdded:Wait()
@@ -368,7 +398,7 @@ local function runDialogue(dialogueData)
 			continue
 		end
 		
-		-- ?? TEXT + SFX/ANIM
+		-- 💬 TEXT + SFX/ANIM
 		if line.text and line.speaker then
 			local speakerData = characters[line.speaker]
 			if speakerData then
@@ -379,31 +409,79 @@ local function runDialogue(dialogueData)
 					originalRotations[line.speaker] = charModel:GetPrimaryPartCFrame()
 				end
 
-				-- ?? Face NPC toward player and vice versa
+				-- 🔁 Face NPC toward player and vice versa and more
 				if charModel ~= player.Character then
-					local humanoid = charModel:FindFirstChildOfClass("Humanoid")
-					if humanoid then
-						-- NPC faces player
-						local root = charModel.PrimaryPart
-						local playerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-						if root and playerRoot then
-							local dir = (playerRoot.Position - root.Position).Unit
-							local lookCFrame = CFrame.new(root.Position, root.Position + Vector3.new(dir.X, 0, dir.Z))
-							charModel:SetPrimaryPartCFrame(lookCFrame)
-						end
+					local npcRoot = charModel.PrimaryPart
+					local playerRoot = player.Character and player.Character.PrimaryPart
+
+					-- Find the correct lookAt target if specified
+					local targetToFace = nil
+
+					if line.lookAt then
+						task.defer(function()
+							local npcRoot = charModel.PrimaryPart
+							if not npcRoot then
+								warn("[LookAt] Speaker has no PrimaryPart:", charModel.Name)
+								return
+							end
+
+							if typeof(line.lookAt) == "string" then
+								local closestTarget = nil
+								local shortestDist = math.huge
+
+								for _, obj in ipairs(workspace:GetDescendants()) do
+									if obj:IsA("Model") and obj.Name == line.lookAt and obj.PrimaryPart then
+										local dist = (obj.PrimaryPart.Position - npcRoot.Position).Magnitude
+										if dist < 100 and dist < shortestDist then
+											shortestDist = dist
+											closestTarget = obj
+										end
+									end
+								end
+
+								if closestTarget then
+									local targetPos = closestTarget.PrimaryPart.Position
+									local dir = (targetPos - npcRoot.Position).Unit
+									local lookCFrame = CFrame.new(npcRoot.Position, npcRoot.Position + Vector3.new(dir.X, 0, dir.Z))
+									charModel:SetPrimaryPartCFrame(lookCFrame)
+								else
+									warn("[LookAt] No nearby target found for:", line.lookAt)
+								end
+
+							elseif typeof(line.lookAt) == "Vector3" then
+								-- Treat as Orientation (Euler angles in degrees)
+								local orientation = line.lookAt
+								local yawCFrame = CFrame.Angles(0, math.rad(orientation.Y), 0)
+								charModel:SetPrimaryPartCFrame(CFrame.new(npcRoot.Position) * yawCFrame)
+								print("[LookAt] Applied orientation to", charModel.Name, orientation)
+							else
+								warn("[LookAt] Invalid lookAt value:", line.lookAt)
+							end
+						end)
 					end
 
-					-- Player faces NPC
-					local playerRoot = player.Character and player.Character.PrimaryPart
-					local speakerRoot = charModel.PrimaryPart
-					if playerRoot and speakerRoot then
-						local dir = (speakerRoot.Position - playerRoot.Position).Unit
+
+					-- Default to facing player if no target
+					if not targetToFace and playerRoot then
+						targetToFace = playerRoot
+					end
+
+					-- NPC faces target
+					if npcRoot and targetToFace then
+						local dir = (targetToFace.Position - npcRoot.Position).Unit
+						local lookCFrame = CFrame.new(npcRoot.Position, npcRoot.Position + Vector3.new(dir.X, 0, dir.Z))
+						charModel:SetPrimaryPartCFrame(lookCFrame)
+					end
+
+					-- Player always faces NPC (if both are present)
+					if playerRoot and npcRoot then
+						local dir = (npcRoot.Position - playerRoot.Position).Unit
 						local look = CFrame.new(playerRoot.Position, playerRoot.Position + Vector3.new(dir.X, 0, dir.Z))
 						player.Character:SetPrimaryPartCFrame(look)
 					end
 				end
 
-		-- ?? CHOICES
+		-- 📱 CHOICES
 	-- Handle choice system
 		if line.choices then
 			local frame = gui:WaitForChild("ChoicesFrame")
@@ -477,7 +555,7 @@ local function runDialogue(dialogueData)
 
 		
 				if line.face then setFace(charModel, line.face) end
-				if line.animation then playAnimation(charModel, line.animation) end
+				if line.animation then playAnimation(charModel, line.animation, line.speaker) end
 
 				-- Optional: playSFX if you add it
 				if line.sfx then
