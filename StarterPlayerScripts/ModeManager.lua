@@ -5,7 +5,7 @@ local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local vnGui = player:WaitForChild("PlayerGui"):WaitForChild("DialogueGui")
 local CollectionService = game:GetService("CollectionService")
---local AUTO_START_DIALOGUE = "IntroDialogue" -- set to nil to disable
+local AUTO_START_DIALOGUE = "IntroDialogue" -- set to nil to disable
 
 local function deepCopy(original)
 	local copy = {}
@@ -107,26 +107,14 @@ local function enterRoamingMode()
 
 	-- Hide Visual Novel GUI
 	vnGui.Enabled = false
-	
-	for characterModel, originalTexture in pairs(_G.OriginalDialogueFaces or {}) do
-		local head = characterModel:FindFirstChild("Head")
-		if head then
-			local decal = head:FindFirstChildWhichIsA("Decal")
-			if decal then
-				decal.Texture = originalTexture
-			end
-		end
-	end
 
-	_G.OriginalDialogueFaces = nil
-
+	print("Switched to Roaming Mode")
+	-- ?? Resume idle animations
 	if _G.playIdleAnimations then
 		_G.playIdleAnimations()
 	end
 end
 
-	print("Switched to Roaming Mode")
-	-- 🔁 Resume idle animations
 -- Expose functions globally if needed elsewhere
 --_G.EnterStoryMode = enterStorytellingMode
 _G.EnterRoamingMode = enterRoamingMode
