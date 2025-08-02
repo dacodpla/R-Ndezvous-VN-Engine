@@ -474,6 +474,7 @@ local function waitForInput()
 	keyConnection:Disconnect()
 end
 
+
 -- ▶️ Run the full dialogue list
 local function runDialogue(dialogueData)
 	if not dialogueData or typeof(dialogueData) ~= "table" then
@@ -524,10 +525,42 @@ local function runDialogue(dialogueData)
 		
 		-- 💬 TEXT + SFX/ANIM
 		if line.text and line.speaker then
-			local speakerData = characters[line.speaker]
-			if speakerData then
-				local charModel = speakerData.model
+			-- 🧠 Find closest character model matching speaker name
+			local function findClosestCharacter(name, originPos, maxDist)
+				local closest = nil
+				local shortest = math.huge
+				for _, model in ipairs(workspace:GetDescendants()) do
+					if model:IsA("Model") and model.Name == name and model.PrimaryPart then
+						local dist = (model.PrimaryPart.Position - originPos).Magnitude
+						if dist < (maxDist or 30) and dist < shortest then
+							shortest = dist
+							closest = model
+						end
+					end
+				end
+				return closest
+			end
+
+			-- 🧠 Find character model based on speaker name
+			local charModel
+			if line.speaker == player.Name then
+				charModel = player.Character
+			else
+				-- Try local characters table first
+				if characters[line.speaker] and characters[line.speaker].model then
+					charModel = characters[line.speaker].model
+				end
+
+				-- If not found or duplicate risk, find closest in workspace
+				if not charModel or not charModel:IsDescendantOf(workspace) then
+					local origin = player.Character and player.Character.PrimaryPart and player.Character.PrimaryPart.Position or Vector3.new()
+					charModel = findClosestCharacter(line.speaker, origin, 100)
+				end
+			end
+
+			if charModel then
 				_G.CurrentSpeakerModel = charModel
+
 				
 				if line.speaker and not originalRotations[line.speaker] then
 					originalRotations[line.speaker] = charModel:GetPrimaryPartCFrame()
