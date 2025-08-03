@@ -59,6 +59,7 @@ local cachedTracks = {}
 local originalRotations = {}
 local originalFaces = {}
 local originalHeads = {}
+local SPEAKER_SCAN_RADIUS = 100
 
 local BGMHandler = require(ReplicatedStorage:WaitForChild("BGMHandler"))
 BGMHandler.PlayPersistent("Main")
@@ -522,46 +523,66 @@ local function runDialogue(dialogueData)
 			i += 1
 			continue
 		end
-		
+
 		-- 💬 TEXT + SFX/ANIM
 		if line.text and line.speaker then
 			-- 🧠 Find closest character model matching speaker name
 			local function findClosestCharacter(name, originPos, maxDist)
 				local closest = nil
-				local shortest = math.huge
+				local shortestDistance = math.huge
+
 				for _, model in ipairs(workspace:GetDescendants()) do
 					if model:IsA("Model") and model.Name == name and model.PrimaryPart then
 						local dist = (model.PrimaryPart.Position - originPos).Magnitude
-						if dist < (maxDist or 30) and dist < shortest then
-							shortest = dist
+						if dist < maxDist and dist < shortestDistance then
+							shortestDistance = dist
 							closest = model
 						end
 					end
 				end
+
 				return closest
 			end
 
-			-- 🧠 Find character model based on speaker name
+			-- ?? Find character model based on speaker name
 			local charModel
-			if line.speaker == player.Name then
+			if line.speaker == MainCharacterName then
 				charModel = player.Character
 			else
-				-- Try local characters table first
-				if characters[line.speaker] and characters[line.speaker].model then
-					charModel = characters[line.speaker].model
+				local origin = player.Character and player.Character.PrimaryPart and player.Character.PrimaryPart.Position or Vector3.zero
+				local fallbackModel = nil
+				local shortestDistance = math.huge
+
+				-- First: check if characters[speaker] exists and is nearby
+				local tableEntry = characters[line.speaker]
+				if tableEntry and tableEntry.model and tableEntry.model:IsDescendantOf(workspace) and tableEntry.model.PrimaryPart then
+					local dist = (tableEntry.model.PrimaryPart.Position - origin).Magnitude
+					if dist < SPEAKER_SCAN_RADIUS then
+						charModel = tableEntry.model
+					end
 				end
 
-				-- If not found or duplicate risk, find closest in workspace
-				if not charModel or not charModel:IsDescendantOf(workspace) then
-					local origin = player.Character and player.Character.PrimaryPart and player.Character.PrimaryPart.Position or Vector3.new()
-					charModel = findClosestCharacter(line.speaker, origin, 100)
+				-- If not valid or too far, do full scan of workspace
+				if not charModel then
+					for _, model in ipairs(workspace:GetDescendants()) do
+						if model:IsA("Model") and model.Name == line.speaker and model.PrimaryPart then
+							local dist = (model.PrimaryPart.Position - origin).Magnitude
+							if dist < SPEAKER_SCAN_RADIUS and dist < shortestDistance then
+								shortestDistance = dist
+								fallbackModel = model
+							end
+						end
+					end
+					charModel = fallbackModel
 				end
 			end
+
+
 
 			if charModel then
 				_G.CurrentSpeakerModel = charModel
 
-				
+
 				if line.speaker and not originalRotations[line.speaker] then
 					originalRotations[line.speaker] = charModel:GetPrimaryPartCFrame()
 				end
@@ -639,60 +660,60 @@ local function runDialogue(dialogueData)
 					end
 				end
 
-		-- 📱 CHOICES
-	-- Handle choice system
-		if line.choices then
-			local frame = gui:WaitForChild("ChoicesFrame")
-			local template = frame:WaitForChild("ChoiceButtonTemplate")
+				-- 📱 CHOICES
+				-- Handle choice system
+				if line.choices then
+					local frame = gui:WaitForChild("ChoicesFrame")
+					local template = frame:WaitForChild("ChoiceButtonTemplate")
 
-			-- Hide dialogue click area while showing choices
-			clickArea.Visible = false
+					-- Hide dialogue click area while showing choices
+					clickArea.Visible = false
 
-			-- Clean up existing buttons
-			for _, child in ipairs(frame:GetChildren()) do
-				if child:IsA("TextButton") and child ~= template then
-					child:Destroy()
-				end
-			end
+					-- Clean up existing buttons
+					for _, child in ipairs(frame:GetChildren()) do
+						if child:IsA("TextButton") and child ~= template then
+							child:Destroy()
+						end
+					end
 
-			-- Make sure layout exists
-			local layout = frame:FindFirstChildOfClass("UIListLayout")
-			if not layout then
-				layout = Instance.new("UIListLayout")
-				layout.SortOrder = Enum.SortOrder.LayoutOrder
-				layout.Padding = UDim.new(0, 8)
-				layout.Parent = frame
-			end
+					-- Make sure layout exists
+					local layout = frame:FindFirstChildOfClass("UIListLayout")
+					if not layout then
+						layout = Instance.new("UIListLayout")
+						layout.SortOrder = Enum.SortOrder.LayoutOrder
+						layout.Padding = UDim.new(0, 8)
+						layout.Parent = frame
+					end
 
-			frame.Visible = true
-			gui.Enabled = true
+					frame.Visible = true
+					gui.Enabled = true
 
-			local selectedBranch = nil
+					local selectedBranch = nil
 
-			for index, choiceData in ipairs(line.choices) do
-				local btn = template:Clone()
-				btn.Text = choiceData.choice or "[No Text]"
-				btn.Visible = true
-				btn.Name = "Choice_" .. index
-				btn.Size = UDim2.new(1, -16, 0, 50)
-				btn.LayoutOrder = index
-				btn.Parent = frame
+					for index, choiceData in ipairs(line.choices) do
+						local btn = template:Clone()
+						btn.Text = choiceData.choice or "[No Text]"
+						btn.Visible = true
+						btn.Name = "Choice_" .. index
+						btn.Size = UDim2.new(1, -16, 0, 50)
+						btn.LayoutOrder = index
+						btn.Parent = frame
 
-				btn.MouseButton1Click:Connect(function()
-					selectedBranch = choiceData
-				end)
-			end
+						btn.MouseButton1Click:Connect(function()
+							selectedBranch = choiceData
+						end)
+					end
 
-			repeat task.wait() until selectedBranch
+					repeat task.wait() until selectedBranch
 
-			frame.Visible = false
-			clickArea.Visible = true
+					frame.Visible = false
+					clickArea.Visible = true
 
-			for _, child in ipairs(frame:GetChildren()) do
-				if child:IsA("TextButton") and child ~= template then
-					child:Destroy()
-				end
-			end
+					for _, child in ipairs(frame:GetChildren()) do
+						if child:IsA("TextButton") and child ~= template then
+							child:Destroy()
+						end
+					end
 
 					--- Replace the current choice line with the branch (in-place)
 					table.remove(dialogueData, i)
@@ -707,11 +728,11 @@ local function runDialogue(dialogueData)
 						table.insert(dialogueData, i, selectedBranch.answer)
 					end
 
-			continue
-		end
+					continue
+				end
 
 
-		
+
 				if line.face then setFace(charModel, line.face) end
 				if line.animation then playAnimation(charModel, line.animation, line.speaker) end
 				if line.dynamicHead then
@@ -775,21 +796,21 @@ _G.RunDialogue = runDialogue
 _G.playIdleAnimations = playIdleAnimations
 
 function stopAllAnimations()
-		for _, data in pairs(characters) do
-			local humanoid = data.model:FindFirstChildOfClass("Humanoid")
-			if humanoid then
-				local animator = humanoid:FindFirstChildOfClass("Animator")
-				if animator then
-					local CollectionService = game:GetService("CollectionService")
-					for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-						if not CollectionService:HasTag(track, "PersistentAnimation") then
-							track:Stop()
-						end
+	for _, data in pairs(characters) do
+		local humanoid = data.model:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			local animator = humanoid:FindFirstChildOfClass("Animator")
+			if animator then
+				local CollectionService = game:GetService("CollectionService")
+				for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+					if not CollectionService:HasTag(track, "PersistentAnimation") then
+						track:Stop()
 					end
 				end
 			end
 		end
 	end
+end
 
 
 _G.StopWorldIdleAnimations = stopAllAnimations
