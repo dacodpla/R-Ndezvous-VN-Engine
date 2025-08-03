@@ -3,15 +3,6 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local characters = {
-	workspace:WaitForChild("beanz"),
-	workspace:WaitForChild("Zlarc")
-}
-
-local idleAnimations = {
-	["beanz"] = "IdleRetro2",
-	["Zlarc"] = "IdleRetro2",
-}
 
 local playing = {} -- keeps track of which characters are already animating
 
@@ -19,11 +10,12 @@ local function getIdleAnim(character)
 	local folder = ReplicatedStorage:WaitForChild("Animations"):FindFirstChild(character.Name)
 	if not folder then return nil end
 
-	local animName = idleAnimations[character.Name]
+	local animName = character:GetAttribute("IdleAnimation")
 	if not animName then return nil end
 
 	return folder:FindFirstChild(animName)
 end
+
 
 local function playIdleLoop(character)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
@@ -66,7 +58,7 @@ local function playIdleLoop(character)
 	-- If we reach here, it means no other animations are playing and the NPC isn't speaking.
 	-- This is the condition to play our idle animation.
 
-	-- Load the animation if it's not loaded yet.
+	-- Load the animation if it's not loaded yet.	
 	if not playing[character] then
 		local idleAnim = getIdleAnim(character)
 		if not idleAnim then return end
@@ -89,9 +81,12 @@ end
 
 RunService.RenderStepped:Connect(function()
 	if _G.GameMode == "Roaming" or _G.GameMode == "Storytelling" then
-		for _, char in characters do
-			playIdleLoop(char)
+		for _, model in ipairs(workspace:GetDescendants()) do
+			if model:IsA("Model") and model:GetAttribute("IdleAnimation") and model:FindFirstChildOfClass("Humanoid") then
+				playIdleLoop(model)
+			end
 		end
+
 	else
 		-- Stop all idle animations when not in Roaming or Storytelling mode
 		for char, track in playing do
