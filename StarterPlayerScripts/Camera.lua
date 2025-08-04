@@ -6,7 +6,7 @@ local FieldOfView = 10 -- Standard FOV for normal GUI size
 --//Do not edit unless you know what you're doing//--
 local Player = game.Players.LocalPlayer
 -- Global speaker override (optional)
-_G.CurrentSpeakerModel = nil
+_G.ActiveDialogueSpeaker = nil
 local currentFocusPosition = nil
 local Character = Player.Character or Player.CharacterAdded:Wait()
 local Camera = workspace.CurrentCamera
@@ -25,7 +25,7 @@ local RunService = game:GetService("RunService")
 RunService.RenderStepped:Connect(function()
 	Camera.FieldOfView = FieldOfView
 
-	local focusModel = _G.CurrentSpeakerModel or Character
+	local focusModel = _G.CameraFocusTarget or Character
 	if focusModel and focusModel:FindFirstChild("Head") then
 		local head = focusModel.Head
 		local targetPos = head.Position
@@ -37,7 +37,7 @@ RunService.RenderStepped:Connect(function()
 		end
 
 		-- Smoothly interpolate
-		currentFocusPosition = currentFocusPosition:Lerp(targetPos, 0.1)
+		currentFocusPosition = currentFocusPosition:Lerp(targetPos, 0.07)
 
 		local zoom = zoomValue.Value
 		local camPos = Vector3.new(
@@ -62,14 +62,14 @@ local function ZoomTo(distance, duration)
 end
 
 local function ResetCameraFocus()
-	local focusModel = _G.CurrentSpeakerModel or Character
-	if focusModel and focusModel:FindFirstChild("Head") then
-		currentFocusPosition = focusModel.Head.Position
-	end
+	--local focusModel = _G.ActiveDialogueSpeaker or Character
+	--if focusModel and focusModel:FindFirstChild("Head") then
+	--	currentFocusPosition = focusModel.Head.Position
+	--end
 end
 
 function _G.ResetCameraFocus()
-	_G.CurrentSpeakerModel = nil
+	_G.ActiveDialogueSpeaker = nil
 	currentFocusPosition = nil -- forces re-focus to player
 end
 
