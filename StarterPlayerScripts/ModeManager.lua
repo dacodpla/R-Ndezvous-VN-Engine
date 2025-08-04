@@ -5,7 +5,7 @@ local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local vnGui = player:WaitForChild("PlayerGui"):WaitForChild("DialogueGui")
 local CollectionService = game:GetService("CollectionService")
-local AUTO_START_DIALOGUE = "IntroDialogue" -- set to nil to disable
+--local AUTO_START_DIALOGUE = "IntroDialogue" -- set to nil to disable
 
 local function deepCopy(original)
 	local copy = {}
@@ -39,6 +39,32 @@ local function setAllProximityPromptsEnabled(enabled)
 	end
 end
 
+local function playPlayerIdle()
+	local anims = game:GetService("ReplicatedStorage"):FindFirstChild("Animations")
+	if not anims then return end
+
+	local char = player.Character
+	if not char then return end
+
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then return end
+
+	local playerName = _G.MainCharacterName or player.Name
+	local animFolder = anims:FindFirstChild(playerName)
+	if not animFolder then return end
+
+	local idleAnim = animFolder:FindFirstChild("Idle") or animFolder:FindFirstChild("IdleRetro2")
+	if not idleAnim then return end
+
+	local track = animator:LoadAnimation(idleAnim)
+	track.Looped = true
+	track.Priority = Enum.AnimationPriority.Idle
+	track:Play()
+end
+
 _G.EnterStoryMode = function(dialogueData)
 	print("Switching to Storytelling Mode")
 	_G.GameMode = "Storytelling"
@@ -65,7 +91,7 @@ _G.EnterStoryMode = function(dialogueData)
 		task.wait(0.1)
 		waited += 0.1
 	end
-	
+
 	if _G.playIdleAnimations then
 		_G.playIdleAnimations()
 	end
@@ -100,7 +126,6 @@ local function enterRoamingMode()
 		_G.ZoomTo(90, 1) -- Return to default zoom
 	end
 
-
 	-- Restore movement
 	humanoid.WalkSpeed = 16
 	humanoid.JumpPower = 0
@@ -108,13 +133,26 @@ local function enterRoamingMode()
 	-- Hide Visual Novel GUI
 	vnGui.Enabled = false
 
-	print("Switched to Roaming Mode")
-	-- ?? Resume idle animations
+	for characterModel, originalTexture in pairs(_G.OriginalDialogueFaces or {}) do
+		local head = characterModel:FindFirstChild("Head")
+		if head then
+			local decal = head:FindFirstChildWhichIsA("Decal")
+			if decal then
+				decal.Texture = originalTexture
+			end
+		end
+	end
+
+	_G.OriginalDialogueFaces = nil
+
 	if _G.playIdleAnimations then
 		_G.playIdleAnimations()
 	end
+	playPlayerIdle()
 end
 
+print("Switched to Roaming Mode")
+-- 🔁 Resume idle animations
 -- Expose functions globally if needed elsewhere
 --_G.EnterStoryMode = enterStorytellingMode
 _G.EnterRoamingMode = enterRoamingMode
