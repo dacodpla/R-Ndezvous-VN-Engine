@@ -24,6 +24,9 @@ local characters = {
 	Ayaka = {
 		model = workspace:WaitForChild("Ayaka")
 	},
+	Balok = {
+		model = workspace:WaitForChild("Balok")
+	},
 	Takumi = {
 		model = workspace:WaitForChild(player.Name)
 	},
@@ -250,10 +253,10 @@ end
 
 
 local function restoreHeads()
-	for characterModel, headAccessory in pairs(originalHeads) do
-		if characterModel and headAccessory and characterModel:IsDescendantOf(workspace) then
-			-- Remove any current dynamic head
-			for _, acc in ipairs(characterModel:GetChildren()) do
+	for model, original in pairs(originalHeads) do
+		if model and model:IsA("Model") and model:IsDescendantOf(workspace) then
+			-- Remove current dynamic head
+			for _, acc in ipairs(model:GetChildren()) do
 				if acc:IsA("Accessory") and acc:FindFirstChild("Handle") then
 					if acc.Handle:FindFirstChild("FaceCenterAttachment") then
 						acc:Destroy()
@@ -261,10 +264,11 @@ local function restoreHeads()
 				end
 			end
 
-			local humanoid = characterModel:FindFirstChildOfClass("Humanoid")
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
 			if humanoid then
+				local cloned = original:Clone()
 				pcall(function()
-					humanoid:AddAccessory(headAccessory:Clone())
+					humanoid:AddAccessory(cloned)
 				end)
 			end
 		end
@@ -495,6 +499,8 @@ local function runDialogue(dialogueData)
 		local line = dialogueData[i]
 		local player = Players.LocalPlayer
 
+		local activeSpeakerModels = {}
+
 		-- 🛑 TRANSITION
 		if line.transition and _G.PlayBlackTransition then
 			_G.PlayBlackTransition(line.transition)
@@ -550,41 +556,16 @@ local function runDialogue(dialogueData)
 				charModel = player.Character
 			else
 				local origin = player.Character and player.Character.PrimaryPart and player.Character.PrimaryPart.Position or Vector3.zero
-				local fallbackModel = nil
-				local shortestDistance = math.huge
-
-				-- First: check if characters[speaker] exists and is nearby
-				local tableEntry = characters[line.speaker]
-				if tableEntry and tableEntry.model and tableEntry.model:IsDescendantOf(workspace) and tableEntry.model.PrimaryPart then
-					local dist = (tableEntry.model.PrimaryPart.Position - origin).Magnitude
-					if dist < SPEAKER_SCAN_RADIUS then
-						charModel = tableEntry.model
-					end
-				end
-
-				-- If not valid or too far, do full scan of workspace
-				if not charModel then
-					for _, model in ipairs(workspace:GetDescendants()) do
-						if model:IsA("Model") and model.Name == line.speaker and model.PrimaryPart then
-							local dist = (model.PrimaryPart.Position - origin).Magnitude
-							if dist < SPEAKER_SCAN_RADIUS and dist < shortestDistance then
-								shortestDistance = dist
-								fallbackModel = model
-							end
-						end
-					end
-					charModel = fallbackModel
-				end
+				charModel = findClosestCharacter(line.speaker, origin, SPEAKER_SCAN_RADIUS)
 			end
 
-
-
 			if charModel then
-				_G.CurrentSpeakerModel = charModel
+				_G.ActiveDialogueSpeaker = _G.ActiveDialogueSpeaker or {}
+				_G.ActiveDialogueSpeaker[charModel.Name] = true
+				_G.CameraFocusTarget = charModel
 
-
-				if line.speaker and not originalRotations[line.speaker] then
-					originalRotations[line.speaker] = charModel:GetPrimaryPartCFrame()
+				if not originalRotations[charModel] then
+					originalRotations[charModel] = charModel:GetPrimaryPartCFrame()
 				end
 
 				-- 🔁 Face NPC toward player and vice versa and more
@@ -753,8 +734,17 @@ local function runDialogue(dialogueData)
 				-- Set name and type text
 				local displayName = (line.speaker == player.Name) and MainCharacterName or line.speaker
 				nameLabel.Text = displayName
+
+				_G.ActiveDialogueSpeaker = _G.ActiveDialogueSpeaker or {}
+				_G.ActiveDialogueSpeaker[charModel.Name] = true
+				_G.CameraFocusTarget = charModel
+
 				typeText(line.text, line.speed or 0.03, line.typeSound, line.effect)
 				waitForInput()
+
+				activeSpeakerModels[charModel] = true
+				_G.ActiveDialogueSpeaker[charModel.Name] = nil
+
 			else
 				warn("Unknown speaker:", line.speaker)
 			end
@@ -766,25 +756,32 @@ local function runDialogue(dialogueData)
 		-- fallback increment
 		i += 1
 
-
-		-- Typewriter
-		typeText(line.text, line.speed or 0.03, line.typeSound, line.effect)
-		waitForInput()
 	end
 
 	-- After all lines
 	require(ReplicatedStorage:WaitForChild("BGMHandler")).RestorePersistent()
-	_G.CurrentSpeakerModel = nil
+	--_G.CurrentSpeakerModel = nil
 
 	if _G.EnterRoamingMode then
-		for name, cframe in pairs(originalRotations) do
-			local charData = characters[name]
-			if charData and charData.model and charData.model ~= player.Character then
-				charData.model:SetPrimaryPartCFrame(cframe)
+		for model, cframe in pairs(originalRotations) do
+			if model and model:IsA("Model") and model:IsDescendantOf(workspace) then
+				if model ~= player.Character then
+					model:SetPrimaryPartCFrame(cframe)
+				end
 			end
 		end
 		originalRotations = {}
+
+		-- 🔄 Reset speaker and camera focus
+		_G.ActiveDialogueSpeaker = nil
+		_G.CameraFocusTarget = nil
+		if _G.ResetCameraFocus then
+			_G.ResetCameraFocus()
+		end
+
+		-- 👋 Exit storytelling mode
 		_G.EnterRoamingMode()
+
 		if _G.RestoreDynamicHeads then
 			_G.RestoreDynamicHeads()
 		end
