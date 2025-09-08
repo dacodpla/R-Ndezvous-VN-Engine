@@ -4,19 +4,19 @@ local player = Players.LocalPlayer
 -- Reference to characters in Workspace
 local characters = {
 	Alarm = {
-		model = workspace:WaitForChild("Takumi bedroom"):WaitForChild("alarm")
+		model = workspace:WaitForChild("Takumi bedroom"):WaitForChild("Alarm")
 	},
 	Mirror = {
-		model = workspace:WaitForChild("Takumi bedroom"):WaitForChild("mirror")
+		model = workspace:WaitForChild("Takumi bedroom"):WaitForChild("Mirror")
 	},
 	Books = {
-		model = workspace:WaitForChild("Takumi bedroom"):WaitForChild("books")
+		model = workspace:WaitForChild("Takumi bedroom"):WaitForChild("Books")
 	},
 	Door = {
 		model = workspace:WaitForChild("Takumi bedroom"):WaitForChild("Door")
 	},
 	Beanz = {
-		model = workspace:WaitForChild("beanz")
+		model = workspace:WaitForChild("Beanz")
 	},
 	Zlarc = {
 		model = workspace:WaitForChild("Zlarc")
@@ -26,6 +26,15 @@ local characters = {
 	},
 	Balok = {
 		model = workspace:WaitForChild("Balok")
+	},
+	Kaito = {
+		model = workspace:WaitForChild("Kaito")
+	},
+	Haruka = {
+		model = workspace:WaitForChild("Haruka")
+	},
+	Onyon = {
+		model = workspace:WaitForChild("Onyon")
 	},
 	Takumi = {
 		model = workspace:WaitForChild(player.Name)
@@ -56,6 +65,7 @@ local clickArea = frame:WaitForChild("DialogueClickArea")
 local typeSoundFolder = ReplicatedStorage:WaitForChild("TypeSounds")
 local animFolder = ReplicatedStorage:WaitForChild("Animations")
 local FacePresets = ReplicatedStorage:WaitForChild("FacePresets")
+local DialogueEvent = ReplicatedStorage:WaitForChild("DialogueEvent")
 
 local activeDialogueTracks = {}
 local cachedTracks = {}
