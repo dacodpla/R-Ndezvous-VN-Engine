@@ -1,12 +1,20 @@
 -- ModeManager (LocalScript in StarterPlayerScripts)
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+
 local player = Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local vnGui = player:WaitForChild("PlayerGui"):WaitForChild("DialogueGui")
-local CollectionService = game:GetService("CollectionService")
---local AUTO_START_DIALOGUE = "IntroDialogue" -- set to nil to disable
 
+--local AUTO_START_DIALOGUE = ""
+
+-- Mode state
+_G.GameMode = "Roaming"
+_G.DialogueReady = true
+
+-- Utils
 local function deepCopy(original)
 	local copy = {}
 	for k, v in pairs(original) do
@@ -19,19 +27,14 @@ local function deepCopy(original)
 	return copy
 end
 
+-- Register prompts under DialoguePrompt tag
 for _, descendant in ipairs(workspace:GetDescendants()) do
 	if descendant:IsA("ProximityPrompt") then
 		CollectionService:AddTag(descendant, "DialoguePrompt")
 	end
 end
 
--- Mode state
-_G.GameMode = "Roaming"
-
-_G.DialogueReady = true
-
 local function setAllProximityPromptsEnabled(enabled)
-	local CollectionService = game:GetService("CollectionService")
 	for _, prompt in CollectionService:GetTagged("DialoguePrompt") do
 		if prompt:IsA("ProximityPrompt") then
 			prompt.Enabled = enabled
@@ -40,15 +43,13 @@ local function setAllProximityPromptsEnabled(enabled)
 end
 
 local function playPlayerIdle()
-	local anims = game:GetService("ReplicatedStorage"):FindFirstChild("Animations")
+	local anims = ReplicatedStorage:FindFirstChild("Animations")
 	if not anims then return end
 
 	local char = player.Character
 	if not char then return end
-
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return end
-
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 	if not animator then return end
 
@@ -65,74 +66,88 @@ local function playPlayerIdle()
 	track:Play()
 end
 
-_G.EnterStoryMode = function(dialogueData)
+-- STORY MODE
+_G.EnterStoryMode = function(dialogueData, npcName)
 	print("Switching to Storytelling Mode")
 	_G.GameMode = "Storytelling"
+
+	-- Zoom camera in
 	if _G.ZoomTo then
-		_G.ZoomTo(40, 1) -- Zoom in smoothly to closer distance
+		_G.ZoomTo(40, 1)
 	end
 
-
-	-- Disable movement
+	-- Disable player movement
 	humanoid.WalkSpeed = 0
 	humanoid.JumpPower = 0
 
-	-- Enable VN GUI
-	local gui = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("DialogueGui")
-	gui.Enabled = true
+	-- Enable VN GUI safely
+	if vnGui then
+		vnGui.Enabled = true
+		-- clear old leftover text
+		local dialogueText = vnGui:FindFirstChild("DialogueText", true)
+		if dialogueText then
+			dialogueText.Text = ""
+		end
+	end
 
 	-- Disable all proximity prompts
 	setAllProximityPromptsEnabled(false)
 
-	-- Wait for dialogue system to be ready
-	local maxWait = 5
-	local waited = 0
+	-- Tell server NPC should pause patrol
+	if npcName then
+		ReplicatedStorage:WaitForChild("DialogueEvent"):FireServer("Start", npcName)
+	end
+
+	-- Wait for DialogueController
+	local maxWait, waited = 5, 0
 	while not _G.DialogueReady and waited < maxWait do
 		task.wait(0.1)
 		waited += 0.1
 	end
-
-	if _G.playIdleAnimations then
-		_G.playIdleAnimations()
-	end
-
 	if not _G.DialogueReady then
 		warn("Dialogue system not ready")
 		return
 	end
 
-	print("Dialogue system is ready")
-
 	-- Start dialogue
 	if _G.RunDialogue then
 		if dialogueData.resetOnRepeat and dialogueData.start then
-			_G.RunDialogue(deepCopy(dialogueData.start))
+			_G.RunDialogue(deepCopy(dialogueData.start), npcName)
 		elseif dialogueData.start then
-			_G.RunDialogue(dialogueData.start)
+			_G.RunDialogue(dialogueData.start, npcName)
 		else
-			_G.RunDialogue(deepCopy(dialogueData))
+			_G.RunDialogue(deepCopy(dialogueData), npcName)
 		end
-
 	else
 		warn("Dialogue function not found")
 	end
 end
 
-
+-- ROAMING MODE
 local function enterRoamingMode()
+	print("Switching back to Roaming Mode")
 	_G.GameMode = "Roaming"
-	setAllProximityPromptsEnabled(true)
+
+	-- Restore camera
 	if _G.ZoomTo then
-		_G.ZoomTo(90, 1) -- Return to default zoom
+		_G.ZoomTo(90, 1)
 	end
 
 	-- Restore movement
 	humanoid.WalkSpeed = 16
-	humanoid.JumpPower = 0
+	humanoid.JumpPower = 50
 
-	-- Hide Visual Novel GUI
-	vnGui.Enabled = false
+	-- Hide VN GUI
+	if vnGui then
+		vnGui.Enabled = false
+		-- clear old text so it doesn’t stick
+		local dialogueText = vnGui:FindFirstChild("DialogueText", true)
+		if dialogueText then
+			dialogueText.Text = ""
+		end
+	end
 
+	-- Restore NPC faces if modified
 	for characterModel, originalTexture in pairs(_G.OriginalDialogueFaces or {}) do
 		local head = characterModel:FindFirstChild("Head")
 		if head then
@@ -142,23 +157,33 @@ local function enterRoamingMode()
 			end
 		end
 	end
-
 	_G.OriginalDialogueFaces = nil
 
+	-- Re-enable prompts
+	setAllProximityPromptsEnabled(true)
+
+	-- Resume animations
 	if _G.playIdleAnimations then
 		_G.playIdleAnimations()
 	end
 	playPlayerIdle()
 end
 
-print("Switched to Roaming Mode")
--- 🔁 Resume idle animations
--- Expose functions globally if needed elsewhere
---_G.EnterStoryMode = enterStorytellingMode
 _G.EnterRoamingMode = enterRoamingMode
 
--- Default state on game start
+-- Auto fallback: dialogue controller should call EnterRoamingMode when done
+if _G.OnDialogueFinished then
+	_G.OnDialogueFinished:Connect(function(npcName)
+		if npcName then
+			ReplicatedStorage:WaitForChild("DialogueEvent"):FireServer("End", npcName)
+		end
+		_G.EnterRoamingMode()
+	end)
+end
+
+-- Default start
 enterRoamingMode()
+
 
 if AUTO_START_DIALOGUE then
 	task.defer(function()
