@@ -74,9 +74,19 @@ for _, model in workspace:GetDescendants() do
 
 			-- ✅ Now we have dialogue data, enter story mode and pass it
 			print("[ProximityPromptHandler] About to call _G.EnterStoryMode. Current value:", _G.EnterStoryMode)
+			print("[ProximityPromptHandler] About to call _G.EnterStoryMode. Current value:", _G.EnterStoryMode)
 			if _G.EnterStoryMode then
 				local ok, err = pcall(function()
-					_G.EnterStoryMode(result)
+					local npcName
+					-- If it's an NPC model with a Humanoid + direct ProximityPrompt, use its name
+					if model:IsA("Model") and model:FindFirstChild("Humanoid") and model:FindFirstChild("ProximityPrompt") then
+						npcName = model.Name
+					else
+						-- fallback for object dialogues (doors, mirrors, books, etc.)
+						npcName = dialogueName
+					end
+
+					_G.EnterStoryMode(result, npcName)
 				end)
 				if not ok then
 					warn("[ProximityPromptHandler] Error calling _G.EnterStoryMode:", err)
