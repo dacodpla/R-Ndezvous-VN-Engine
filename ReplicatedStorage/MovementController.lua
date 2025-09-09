@@ -3,6 +3,7 @@
 
 local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local MovementController = {}
 local npcStates = {}
@@ -28,43 +29,110 @@ local function ensureAnimator(humanoid)
 	return animator
 end
 
+--// Animation lookup
 local function getAnimInstance(model, animName)
-	local animationsRoot = ReplicatedStorage:FindFirstChild("Animations")
-	if not animationsRoot then return nil end
-	local folder = animationsRoot:FindFirstChild(model.Name)
-	if not folder then return nil end
-	local anim = folder:FindFirstChild(animName)
-	if anim and anim:IsA("Animation") then
-		return anim
+	if not model then
+		warn("[MovementController] getAnimInstance called with nil model for anim:", animName)
+		return nil
 	end
+
+	local animationsRoot = ReplicatedStorage:FindFirstChild("Animations")
+	if not animationsRoot then
+		warn("[MovementController] Animations folder missing in ReplicatedStorage")
+		return nil
+	end
+
+	-- Player special case ? always Takumi
+	local folderName
+	local player = game.Players:GetPlayerFromCharacter(model)
+	if player then
+		folderName = "Takumi"
+	else
+		folderName = model.Name
+	end
+
+	local folder = animationsRoot:FindFirstChild(folderName)
+	if not folder then
+		warn(("[MovementController] No animation folder found for %s (model.Name: %s)")
+			:format(folderName, model.Name))
+		return nil
+	end
+
+	print("[DEBUG] Looking for", animName, "in folder:", folderName)
+	for _, child in ipairs(folder:GetChildren()) do
+		print("  ->", child.Name, child.ClassName)
+	end
+
+	local anim = folder:FindFirstChild(animName)
+	if anim then
+		print("[DEBUG] Found child for", animName, "ClassName:", anim.ClassName)
+
+		if anim:IsA("Animation") then
+			return anim
+		else
+			warn("[MovementController] Found", animName, "but itís not an Animation (Class:", anim.ClassName, ")")
+		end
+	end
+
+
+	warn(("[MovementController] Missing animation: %s for %s (model.Name: %s)")
+		:format(animName, folderName, model.Name))
 	return nil
 end
 
--- Animation Handling
+--// Core play function
 local function playAnimation(state, animName, priority)
 	local animObj = getAnimInstance(state.model, animName)
-	if not animObj then return end
+	if not animObj or not state.animator then
+		-- Warn but donít stop movement
+		local modelName = state.model and state.model.Name or "nil"
+		warn("[MovementController] No anim loaded for", modelName, "anim:", animName)
+		return
+	end
 
+	-- Donít restart same anim unnecessarily
+	if state.currentTrack and state.currentTrack.IsPlaying and state.currentTrack.Name == animObj.Name then
+		return
+	end
+
+	-- Stop old track if different
 	if state.currentTrack and state.currentTrack.IsPlaying then
 		state.currentTrack:Stop()
 	end
 
 	local track = state.animator:LoadAnimation(animObj)
+	track.Name = animObj.Name
 	track.Priority = priority or Enum.AnimationPriority.Idle
 	track.Looped = true
 	track:Play()
+
 	state.currentTrack = track
 end
 
+--// High-level helpers
 local function playWalkAnim(state)
-	local animName = state.model:GetAttribute("PatrolWalkAnim") or "Walk"
-	playAnimation(state, animName, Enum.AnimationPriority.Movement)
+	local animName = state.model:GetAttribute("WalkAnimation") or "Walk"
+	local animObj = getAnimInstance(state.model, animName)
+
+	if animObj then
+		playAnimation(state, animName, Enum.AnimationPriority.Movement)
+	else
+		warn("[MovementController] No Walk animation for", state.model.Name, "ó moving without anim.")
+		-- Fallback: humanoid will still walk without custom anims
+	end
 end
 
 local function playIdleAnim(state)
 	local animName = state.model:GetAttribute("IdleAnimation") or "Idle"
-	playAnimation(state, animName, Enum.AnimationPriority.Idle)
+	local animObj = getAnimInstance(state.model, animName)
+
+	if animObj then
+		playAnimation(state, animName, Enum.AnimationPriority.Idle)
+	else
+		warn("[MovementController] No Idle animation for", state.model.Name, "ó standing without anim.")
+	end
 end
+
 
 -- Pathfinding
 local function computePath(startPos, goalPos)
@@ -85,9 +153,17 @@ end
 -- Public API
 
 -- Moves NPC directly to target (fallback)
-function MovementController.MoveDirect(state, targetPos)
+function MovementController.MoveDirect(state, targetPos, opts)
+	opts = opts or {}
 	local humanoid = state.humanoid
 	if not humanoid then return false end
+
+	-- ?? Block movement if inDialogue, unless explicitly allowed
+	if state.inDialogue and not opts.allowDuringDialogue then
+		return false
+	end
+
+	print("[MovementController] MoveDirect called for:", state.model.Name, "to", targetPos)
 
 	humanoid.WalkSpeed = state.model:GetAttribute("PatrolSpeed") or DEFAULT_SPEED
 	playWalkAnim(state)
@@ -119,25 +195,29 @@ function MovementController.MoveDirect(state, targetPos)
 end
 
 -- Uses pathfinding
--- Modified MoveTo with dialogue interrupt support
-function MovementController.MoveTo(state, targetPos)
+function MovementController.MoveTo(state, targetPos, opts)
+	opts = opts or {}
 	local humanoid = state.humanoid
 	if not humanoid then return false end
 
+	-- ?? Block movement if inDialogue, unless explicitly allowed
+	if state.inDialogue and not opts.allowDuringDialogue then
+		return false
+	end
+
 	local path = computePath(state.model.PrimaryPart.Position, targetPos)
 	if not path then
-		return MovementController.MoveDirect(state, targetPos)
+		return MovementController.MoveDirect(state, targetPos, opts)
 	end
 
 	humanoid.WalkSpeed = state.model:GetAttribute("PatrolSpeed") or DEFAULT_SPEED
 	playWalkAnim(state)
 
 	for _, wp in ipairs(path:GetWaypoints()) do
-		-- ‚ùå If dialogue starts, stop walking immediately
-		if state.inDialogue then
-			humanoid:Move(Vector3.new(0, 0, 0), false) -- stop
+		if state.inDialogue and not opts.allowDuringDialogue then
+			humanoid:Move(Vector3.new(0, 0, 0), false)
 			playIdleAnim(state)
-			return false -- mark as interrupted
+			return false
 		end
 
 		local reached = false
@@ -148,11 +228,11 @@ function MovementController.MoveTo(state, targetPos)
 
 		local start = time()
 		while not reached and (time() - start) < MOVE_TO_TIMEOUT do
-			if state.inDialogue then
+			if state.inDialogue and not opts.allowDuringDialogue then
 				humanoid:Move(Vector3.new(0, 0, 0), false)
 				conn:Disconnect()
 				playIdleAnim(state)
-				return false -- interrupted mid-walk
+				return false
 			end
 			task.wait(0.1)
 		end
@@ -162,7 +242,6 @@ function MovementController.MoveTo(state, targetPos)
 	playIdleAnim(state)
 	return true
 end
-
 
 -- Makes NPC patrol through its PatrolPoints
 function MovementController.Patrol(state)
@@ -189,7 +268,7 @@ function MovementController.Patrol(state)
 
 			local targetPart = state.points[state.idx]
 			if targetPart then
-				-- üîë Keep retrying this MoveTo until it succeeds
+				-- ?? Keep retrying this MoveTo until it succeeds
 				local arrived = false
 				while not arrived and state.model and state.model.Parent do
 					if state.inDialogue then break end -- if dialogue starts again, break early
@@ -220,26 +299,55 @@ function MovementController.Patrol(state)
 	end)
 end
 
-
-
-
 -- Makes NPC follow a Player
+local following = {} -- [model] = thread
+
 function MovementController.FollowPlayer(state, player)
-	task.spawn(function()
+	if following[state.model] then return end -- already following
+	following[state.model] = task.spawn(function()
+		local followDistance = 5 -- studs
+
 		while state.model and state.model.Parent and player.Character and player.Character.PrimaryPart do
 			local targetPos = player.Character.PrimaryPart.Position
-			MovementController.MoveTo(state, targetPos)
+			local npcPos = state.model.PrimaryPart.Position
+			local distance = (npcPos - targetPos).Magnitude
+
+			if distance > followDistance then
+				MovementController.MoveTo(state, targetPos)
+			else
+				-- Stop and idle if close enough
+				if state.currentTrack and state.currentTrack.IsPlaying then
+					state.currentTrack:Stop()
+				end
+				playIdleAnim(state)
+			end
+
 			task.wait(0.5)
 		end
 	end)
 end
 
+function MovementController.StopFollowing(state)
+	if following[state.model] then
+		task.cancel(following[state.model])
+		following[state.model] = nil
+	end
+end
+
 -- Setup helper
 function MovementController.CreateState(npcModel)
-	local humanoid = safeHumanoid(npcModel)
+	local humanoid = npcModel:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return nil end
 	if not npcModel.PrimaryPart then return nil end
-	local animator = ensureAnimator(humanoid)
+
+	-- ensure Animator exists
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Name = "AutoAnimator"
+		animator.Parent = humanoid
+		print("[MovementController] Auto-created Animator for", npcModel.Name)
+	end
 
 	local state = {
 		model = npcModel,
@@ -254,7 +362,9 @@ function MovementController.CreateState(npcModel)
 	return state
 end
 
--- üîé NEW: GetState helper
+
+
+-- ?? NEW: GetState helper
 function MovementController.GetState(npcModel)
 	return npcStates[npcModel]
 end
@@ -267,26 +377,35 @@ end
 -- Dialogue hook
 local DialogueEvent = ReplicatedStorage:WaitForChild("DialogueEvent")
 
-DialogueEvent.OnServerEvent:Connect(function(player, action, npcName)
-	print("[MovementController] DialogueEvent received:", action, npcName)
+if RunService:IsServer() then
+	DialogueEvent.OnServerEvent:Connect(function(player, action, npcName)
+		print("[MovementController] DialogueEvent received:", action, npcName)
 
-	if not npcName then return end
-	local npcModel = workspace:FindFirstChild(npcName)
-	if not npcModel then return end
+		if not npcName then return end
+		local npcModel = workspace:FindFirstChild(npcName)
+		if not npcModel then return end
 
-	local state = MovementController.GetState and MovementController.GetState(npcModel)
-	if not state then
-		warn("[MovementController] No patrol state found for", npcName)
-		return
-	end
+		local state = MovementController.GetState and MovementController.GetState(npcModel)
+		if not state then
+			warn("[MovementController] No patrol state found for", npcName)
+			return
+		end
 
-	if action == "Start" then
-		state.inDialogue = true
-		print("[MovementController] Pausing patrol for", npcName)
-	elseif action == "End" then
-		state.inDialogue = false
-		print("[MovementController] Resuming patrol for", npcName)
-	end
-end)
+		-- ? Only affect patrols, not scripted actions or following
+		if action == "Start" then
+			if state.isPatrolling then
+				state.inDialogue = true
+				print("[MovementController] Pausing patrol for", npcName)
+			end
+		elseif action == "End" then
+			if state.isPatrolling then
+				state.inDialogue = false
+				print("[MovementController] Resuming patrol for", npcName)
+			end
+		end
+	end)
+end
+
 
 return MovementController
+
