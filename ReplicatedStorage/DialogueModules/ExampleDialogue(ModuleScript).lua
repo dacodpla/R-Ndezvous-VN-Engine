@@ -1,111 +1,108 @@
+-- ExampleDialogue(ModuleScript).lua
+-- Showcases: transitions, SFX, BGM, face/animation changes, lookAt, typewriter sounds,
+-- choices, sync teleport, actions, and afterDialogue instructions — with 4th-wall breaks.
+
 return {
+	-- Intro transition
 	{
 		transition = {
 			type = "staticText",
-			messages = { "Day 1 - Arrival" },
+			messages = { "Meta Test – Every Feature Active" },
 			duration = 2
+		},
+		-- Initial actions: move NPCs into place before the scene starts
+		actions = {
+			{ actor = "Haruka", moveTo = Vector3.new(50, 0.5, 150), waitUntilArrive = true },
+			{ actor = "Takumi", moveTo = Vector3.new(48, 0.5, 152) }
 		}
 	},
+
+	-- Standard line with BGM and face change
 	{
-		speaker = "Ayaka",
-		text = "HIIIIIII TAKUMI!!!!",
-		typeSound = "ayakaType",
-		sfx = "alert",
-		animation = "JumpExcited",
+		speaker = "Haruka",
+		text = "Welcome, Player… we’re literally inside a GitHub example script!",
+		bgm = "mysteryTheme",
 		face = "happy",
-		head = "SmilingHead"
-	},
-	{
-		speaker = "Takumi",
-		text = "Ayaka?! You're here already?",
+		animation = "IdleTalk",
 		typeSound = "MainType",
-		animation = "Shock",
-		face = "surprised",
-		head = "default"
-	},
-	{
-		speaker = "Ayaka",
-		text = "Of course! I couldn�t wait!",
-		typeSound = "ayakaType",
-		animation = "IdleExcited",
-		face = "wink",
-		bgm = "happyTheme",
 		lookAt = "Takumi"
 	},
+
+	-- SFX and head turn
 	{
-		speaker = "Zlarc",
-		text = "Tch. Loud as always...",
-		face = "annoyed",
-		animation = "IdleRetro2",
-		typeSound = "ZlarcType",
-		lookAt = "Ayaka"
+		speaker = "Takumi",
+		text = "Yup. The dev is testing **every** single feature—watch closely!",
+		sfx = "alert",
+		head = "default",
+		face = "default",
+		animation = "IdleTalk",
+		typeSound = "MainType"
 	},
-	{
-		transition = {
-			type = "syncTeleport",
-			messages = { "Later that day..." },
-			duration = 1.5,
-			teleport = {
-				target = "LobbySpot"
-			}
-		}
-	},
+
+	-- Choice branch demonstration
 	{
 		speaker = "Ayaka",
-		text = "Hey, Takumi... be honest with me.",
-		typeSound = "ayakaType",
-		animation = "IdleSad",
-		face = "neutral"
-	},
-	{
-		speaker = "Ayaka",
-		text = "Do you like this game?",
-		typeSound = "ayakaType",
-		face = "neutral",
+		text = "How do you feel about characters breaking the fourth wall?",
 		choices = {
 			resetOnRepeat = true,
 			{
-				text = "Yeah! It's amazing.",
+				text = "Love it!",
 				next = {
-					{
-						speaker = "Ayaka",
-						text = "Yay~ I knew you�d say that!",
-						animation = "JumpExcited",
-						face = "happy",
-						typeSound = "ayakaType"
-					},
-					{
-						speaker = "Zlarc",
-						text = "Disgusting.",
-						face = "angry",
-						animation = "IdleRetro2"
-					}
+					{ speaker = "Ayaka", text = "Hehe~ Meta humor is the best!", face = "happy", animation = "JumpExcited" },
+					{ speaker = "Zlarc", text = "Figures. You’re as chaotic as the dev.", face = "smirk", animation = "IdleRetro2" }
 				}
 			},
 			{
-				text = "Not really...",
+				text = "Please stop.",
 				next = {
-					{
-						speaker = "Ayaka",
-						text = "O-oh... I see...",
-						face = "sad",
-						animation = "IdleSad",
-						typeSound = "ayakaType"
-					},
-					{
-						speaker = "Zlarc",
-						text = "Finally. Some honesty.",
-						face = "smirk",
-						animation = "IdleRetro2"
-					}
+					{ speaker = "Ayaka", text = "Alright, alright… back to immersion.", face = "sad", animation = "IdleSad" },
+					{ speaker = "Zlarc", text = "Finally, someone serious around here.", face = "angry", animation = "IdleRetro2" }
 				}
 			}
 		}
 	},
+
+	-- Teleport transition mid-scene
+	{
+		transition = {
+			type = "syncTeleport",
+			messages = { "Reality glitches—you all warp elsewhere!" },
+			duration = 1.5,
+			teleport = { target = "MetaRoom" }
+		},
+		actions = {
+			-- Move an NPC immediately after teleport
+			{ actor = "Zlarc", moveTo = Vector3.new(60, 0.5, 145), waitUntilArrive = false }
+		}
+	},
+
+	-- AfterDialogue instructions will trigger after this line completes
+	{
+		speaker = "Zlarc",
+		text = "When this ends, watch what happens—flags, attributes, and following behaviors!",
+		face = "annoyed",
+		animation = "IdleRetro2",
+		typeSound = "ZlarcType",
+		afterDialogue = {
+			-- Story flag setting
+			{ type = "SetFlag", flag = "MetaExampleSeen", value = true },
+			-- Start following the player
+			{ type = "FollowPlayer", npc = "Haruka" },
+			-- Change dialogue module for Ayaka
+			{ type = "ChangeDialogue", npc = "Ayaka", newDialogue = "Ayaka_PostMeta" },
+			-- Modify an attribute on an interactable object
+			{ type = "SetAttribute", target = "MysteryBox", key = "Unlocked", value = true },
+			-- Destroy a placeholder object
+			{ type = "Destroy", target = "TemporaryWall" },
+		}
+	},
+
+	-- Wrap-up line
 	{
 		speaker = "Takumi",
-		text = "Anyway, let's move on.",
+		text = "And… scene! This proves every system works—animations, SFX, choices, actions, after-dialogue, all of it.",
 		face = "default",
+		animation = "IdleTalk",
 		typeSound = "MainType"
 	}
 }
