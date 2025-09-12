@@ -4,6 +4,7 @@
 local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local PathfindingService = game:GetService("PathfindingService")
 
 local MovementController = {}
 local npcStates = {}
@@ -18,6 +19,14 @@ local function safeHumanoid(model)
 	return model and model:FindFirstChildOfClass("Humanoid")
 end
 
+local function togglePrompts(model, enabled)
+	for _, prompt in ipairs(model:GetDescendants()) do
+		if prompt:IsA("ProximityPrompt") and not prompt:GetAttribute("IgnoreMovementHide") then
+			prompt.Enabled = enabled
+		end
+	end
+end	
+
 local function ensureAnimator(humanoid)
 	if not humanoid then return end
 	local animator = humanoid:FindFirstChildOfClass("Animator")
@@ -27,6 +36,34 @@ local function ensureAnimator(humanoid)
 		animator.Parent = humanoid
 	end
 	return animator
+end
+
+function MovementController.moveWithPath(state, targetPos)
+	local humanoid = state.model:FindFirstChildOfClass("Humanoid")
+	local hrp = state.model:FindFirstChild("HumanoidRootPart")
+	if not humanoid or not hrp then return end
+
+	local path = PathfindingService:CreatePath({
+		AgentRadius = 2,
+		AgentHeight = 5,
+		AgentCanJump = true,
+		WaypointSpacing = 4
+	})
+	path:ComputeAsync(hrp.Position, targetPos)
+
+	if path.Status == Enum.PathStatus.Success then
+		for _, waypoint in ipairs(path:GetWaypoints()) do
+			humanoid:MoveTo(waypoint.Position)
+			humanoid.MoveToFinished:Wait()
+
+			-- Play walk animation while moving
+			if waypoint.Action == Enum.PathWaypointAction.Jump then
+				humanoid.Jump = true
+			end
+		end
+	else
+		warn("[Pathfinding] Failed to find path for", state.model.Name)
+	end
 end
 
 --// Animation lookup
@@ -194,54 +231,65 @@ function MovementController.MoveDirect(state, targetPos, opts)
 	return arrived
 end
 
--- Uses pathfinding
-function MovementController.MoveTo(state, targetPos, opts)
-	opts = opts or {}
-	local humanoid = state.humanoid
-	if not humanoid then return false end
 
-	-- ?? Block movement if inDialogue, unless explicitly allowed
-	if state.inDialogue and not opts.allowDuringDialogue then
-		return false
+-- New Pathfinder-based MoveTo
+-- MovementController.lua
+local PathfindingService = game:GetService("PathfindingService")
+
+function MovementController.MoveTo(model, targetPosition)
+	togglePrompts(model, false) -- hide prompts while moving
+
+	if not model or not targetPosition then return end
+
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	local root = model:FindFirstChild("HumanoidRootPart")
+	if not humanoid or not root then return end
+
+	-- Retrieve the state for animations
+	local state = MovementController.GetState(model) or MovementController.CreateState(model)
+
+	-- Generate a path
+	local path = PathfindingService:CreatePath({
+		AgentRadius = 2,
+		AgentHeight = 5,
+		AgentCanJump = false,
+	})
+	path:ComputeAsync(root.Position, targetPosition)
+
+	if path.Status ~= Enum.PathStatus.Success then
+		humanoid:MoveTo(targetPosition) -- fallback
+		return
 	end
 
-	local path = computePath(state.model.PrimaryPart.Position, targetPos)
-	if not path then
-		return MovementController.MoveDirect(state, targetPos, opts)
-	end
+	local waypoints = path:GetWaypoints()
+	if #waypoints == 0 then return end
 
-	humanoid.WalkSpeed = state.model:GetAttribute("PatrolSpeed") or DEFAULT_SPEED
+	-- Start walking animation
 	playWalkAnim(state)
 
-	for _, wp in ipairs(path:GetWaypoints()) do
-		if state.inDialogue and not opts.allowDuringDialogue then
-			humanoid:Move(Vector3.new(0, 0, 0), false)
+	for _, waypoint in ipairs(waypoints) do
+		-- Pause check
+		if state.isPaused then
 			playIdleAnim(state)
-			return false
+			return
 		end
 
-		local reached = false
-		humanoid:MoveTo(wp.Position)
-		local conn = humanoid.MoveToFinished:Connect(function(success)
-			reached = success
-		end)
-
-		local start = time()
-		while not reached and (time() - start) < MOVE_TO_TIMEOUT do
-			if state.inDialogue and not opts.allowDuringDialogue then
-				humanoid:Move(Vector3.new(0, 0, 0), false)
-				conn:Disconnect()
-				playIdleAnim(state)
-				return false
+		humanoid:MoveTo(waypoint.Position)
+		local reached = humanoid.MoveToFinished:Wait(2) -- timeout to avoid freezing
+		if not reached then
+			path:ComputeAsync(root.Position, targetPosition)
+			if path.Status == Enum.PathStatus.Success then
+				waypoints = path:GetWaypoints()
 			end
-			task.wait(0.1)
 		end
-		conn:Disconnect()
 	end
 
+	-- Switch back to idle when done
 	playIdleAnim(state)
-	return true
+	togglePrompts(model, true)
 end
+
+
 
 -- Makes NPC patrol through its PatrolPoints
 function MovementController.Patrol(state)
@@ -272,7 +320,7 @@ function MovementController.Patrol(state)
 				local arrived = false
 				while not arrived and state.model and state.model.Parent do
 					if state.inDialogue then break end -- if dialogue starts again, break early
-					arrived = MovementController.MoveTo(state, targetPart.Position)
+					arrived = MovementController.MoveDirect(state, targetPart.Position)
 					if not arrived then
 						print("[Patrol] "..state.model.Name.." retrying waypoint "..state.idx)
 						task.wait(0.5)
@@ -299,33 +347,47 @@ function MovementController.Patrol(state)
 	end)
 end
 
--- Makes NPC follow a Player
-local following = {} -- [model] = thread
+local following = {} -- [Model] = thread
 
 function MovementController.FollowPlayer(state, player)
-	if following[state.model] then return end -- already following
+	-- Restore NPC to last known position before following (optional)
+	if state.lastKnownPosition and state.model and state.model.PrimaryPart then
+		state.model:SetPrimaryPartCFrame(state.lastKnownPosition)
+	end
+
+	if following[state.model] then return end
 	following[state.model] = task.spawn(function()
-		local followDistance = 5 -- studs
+		local safeZoneRadius = 5
 
 		while state.model and state.model.Parent and player.Character and player.Character.PrimaryPart do
-			local targetPos = player.Character.PrimaryPart.Position
-			local npcPos = state.model.PrimaryPart.Position
+			if state.isPaused then
+				playIdleAnim(state)
+				task.wait(0.5)
+				continue
+			end
+
+			local playerRoot = player.Character.PrimaryPart
+			local npcRoot = state.model.PrimaryPart
+			local targetPos = playerRoot.Position
+			local npcPos = npcRoot.Position
 			local distance = (npcPos - targetPos).Magnitude
 
-			if distance > followDistance then
-				MovementController.MoveTo(state, targetPos)
+			if distance > safeZoneRadius + 0.5 then
+				local lookVec = playerRoot.CFrame.LookVector
+				local safeTarget = targetPos - lookVec * safeZoneRadius
+				MovementController.MoveTo(state.model, safeTarget)
 			else
-				-- Stop and idle if close enough
 				if state.currentTrack and state.currentTrack.IsPlaying then
 					state.currentTrack:Stop()
 				end
 				playIdleAnim(state)
 			end
-
 			task.wait(0.5)
 		end
 	end)
 end
+
+
 
 function MovementController.StopFollowing(state)
 	if following[state.model] then
@@ -378,32 +440,70 @@ end
 local DialogueEvent = ReplicatedStorage:WaitForChild("DialogueEvent")
 
 if RunService:IsServer() then
-	DialogueEvent.OnServerEvent:Connect(function(player, action, npcName)
-		print("[MovementController] DialogueEvent received:", action, npcName)
+	DialogueEvent.OnServerEvent:Connect(function(player, action, payload)
+		print("[MovementController] DialogueEvent received:", action, payload)
 
-		if not npcName then return end
-		local npcModel = workspace:FindFirstChild(npcName)
-		if not npcModel then return end
+		if action == "Start" or action == "End" then
+			local npcName = payload
+			if not npcName then return end
 
-		local state = MovementController.GetState and MovementController.GetState(npcModel)
-		if not state then
-			warn("[MovementController] No patrol state found for", npcName)
-			return
-		end
+			local npcModel = workspace:FindFirstChild(npcName)
+			if not npcModel then return end
 
-		-- ? Only affect patrols, not scripted actions or following
-		if action == "Start" then
-			if state.isPatrolling then
-				state.inDialogue = true
-				print("[MovementController] Pausing patrol for", npcName)
+			local state = MovementController.GetState and MovementController.GetState(npcModel)
+			if not state then
+				warn("[MovementController] No patrol state found for", npcName)
+				return
 			end
-		elseif action == "End" then
-			if state.isPatrolling then
-				state.inDialogue = false
-				print("[MovementController] Resuming patrol for", npcName)
+
+			if action == "Start" then
+				if state.isPatrolling then
+					state.inDialogue = true
+					print("[MovementController] Pausing patrol for", npcName)
+				end
+			elseif action == "End" then
+				if state.isPatrolling then
+					state.inDialogue = false
+					print("[MovementController] Resuming patrol for", npcName)
+				end
 			end
+		else
+			-- ignore RunActions, AfterDialogue, etc.
+			print("[MovementController] Ignored action:", action)
 		end
 	end)
+end
+
+function MovementController.PauseMovement(model)
+	local state = MovementController.GetState(model)
+	if not state then return end
+	state.isPaused = true
+
+	-- Stop current movement immediately
+	local humanoid = state.humanoid or model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		-- Force-stop MoveTo by moving to its own position
+		humanoid:MoveTo(model.PrimaryPart.Position)
+		-- Optional: clear velocity to prevent sliding
+		if model.PrimaryPart then
+			model.PrimaryPart.AssemblyLinearVelocity = Vector3.zero
+		end
+	end
+
+	-- Stop walk animation
+	if state.currentTrack and state.currentTrack.IsPlaying then
+		state.currentTrack:Stop()
+	end
+
+	-- Switch to idle animation
+	playIdleAnim(state)
+end
+
+
+function MovementController.ResumeMovement(model)
+	local state = MovementController.GetState(model)
+	if not state then return end
+	state.isPaused = false
 end
 
 

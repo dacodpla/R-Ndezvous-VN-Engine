@@ -22,7 +22,7 @@ end
 -- Main transition function
 local function playTransition(config)
 	local transitionType = config and config.type or "staticText"
-	local messages = config and config.messages or {"..."}
+	local messages = config and config.messages or {""}
 	local duration = config and config.duration or 2
 
 	-- Hide VN GUI before fade-in
@@ -126,17 +126,22 @@ local function playTransition(config)
 
 	elseif transitionType == "syncTeleport" then
 		dialogueGui.Enabled = false
-		textLabel.Visible = false
+		textLabel.Visible = true
 		clickCatcher.Visible = false
 
 		blackFrame.Visible = true
 		blackFrame.BackgroundTransparency = 1
+		textLabel.TextTransparency = 1
 
-		local fadeInTween = TweenService:Create(blackFrame, TweenInfo.new(0.5), {BackgroundTransparency = 0})
-		fadeInTween:Play()
-		fadeInTween.Completed:Wait()
+		-- ? Use messages[1] for static text
+		textLabel.Text = messages and messages[1] or ""
 
-		-- Teleport AFTER fade-in
+		-- Smooth fade in
+		local fadeInFrame = fade(blackFrame, {BackgroundTransparency = 0}, 0.5)
+		local fadeInText = fade(textLabel, {TextTransparency = 0}, 0.5)
+		fadeInFrame.Completed:Wait()
+
+		-- ?? Teleport AFTER fade-in
 		if config.teleport then
 			local player = Players.LocalPlayer
 			local char = player.Character or player.CharacterAdded:Wait()
@@ -161,25 +166,21 @@ local function playTransition(config)
 			end
 		end
 
-		-- ? Wait for duration after teleport
+		-- Wait if duration is set
 		local duration = config.duration or 0
 		if duration > 0 then
 			task.wait(duration)
 		end
 
-		-- Fade out black screen
-		local fadeOutTween = TweenService:Create(blackFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1})
-		fadeOutTween:Play()
-		fadeOutTween.Completed:Wait()
+		-- Smooth fade out
+		local fadeOutFrame = fade(blackFrame, {BackgroundTransparency = 1}, 0.5)
+		local fadeOutText = fade(textLabel, {TextTransparency = 1}, 0.5)
+		fadeOutFrame.Completed:Wait()
 
+		textLabel.Visible = false
 		blackFrame.Visible = false
-		if _G.DialogueWillContinue then
-			dialogueGui.Enabled = true
-		else
-			dialogueGui.Enabled = false
-		end
-
-		end
+		dialogueGui.Enabled = _G.DialogueWillContinue or false
+	end
 end
 
 -- Expose to _G

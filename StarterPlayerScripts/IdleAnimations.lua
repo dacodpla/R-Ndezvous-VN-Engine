@@ -27,7 +27,7 @@ local function playIdleLoop(character)
 		isSpeaking = _G.ActiveDialogueSpeaker[character.Name] == true
 	end
 
-	-- 🛑 If the NPC is currently speaking, stop the idle anim
+	-- ?? If the NPC is currently speaking, stop the idle anim
 	if isSpeaking then
 		if playing[character] and playing[character].IsPlaying then
 			playing[character]:Stop()
@@ -75,7 +75,7 @@ local function playIdleLoop(character)
 	end
 end
 
--- 🔁 Main update loop
+-- ?? Main update loop
 RunService.RenderStepped:Connect(function()
 	if _G.GameMode == "Roaming" or _G.GameMode == "Storytelling" then
 		for _, model in ipairs(workspace:GetDescendants()) do

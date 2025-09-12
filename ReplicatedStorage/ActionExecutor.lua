@@ -4,6 +4,8 @@ local MovementController = require(game.ReplicatedStorage:WaitForChild("Movement
 local ActionExecutor = {}
 
 -- helper: resolve a model by actor name (string) or actorModel (instance)
+local Players = game:GetService("Players")
+
 local function resolveActor(actorField)
 	if not actorField then return nil, "no actor specified" end
 
@@ -14,6 +16,17 @@ local function resolveActor(actorField)
 	end
 
 	if type(actorField) == "string" then
+		-- Special case: "Takumi" should resolve to the local player's character
+		if actorField == "Takumi" then
+			local player = Players:GetPlayers()[1] -- singleplayer assumption
+			if player and player.Character then
+				local model = player.Character
+				local state = MovementController.GetState(model) or MovementController.CreateState(model)
+				return model, state
+			end
+		end
+
+		-- Default: look up NPCs by name
 		local model = workspace:FindFirstChild(actorField)
 		if not model then
 			return nil, ("actor model '%s' not found in workspace"):format(actorField)
@@ -24,6 +37,7 @@ local function resolveActor(actorField)
 
 	return nil, "unsupported actor type"
 end
+
 
 -- Run one move action (supports moveTo vector, teleport, and simple turn)
 local function runSingleAction(action, opts)
@@ -39,17 +53,34 @@ local function runSingleAction(action, opts)
 	end
 	local state = stateOrErr
 
-	-- Movement: use MovementController.MoveTo (pathfinder) with interruption/during-dialogue handling
+	-- Movement: pathfinding for player, direct for NPC
 	if action.moveTo then
 		local target = action.moveTo
+		local isPlayerChar = game.Players:GetPlayerFromCharacter(model) ~= nil
+
 		if action.waitUntilArrive then
-			-- blocking: wait until MoveTo returns true/false
-			local ok = MovementController.MoveTo(state, target)
+			-- blocking: wait until arrive
+			local ok
+			if isPlayerChar then
+				ok = MovementController.MoveTo(model, target) -- pathfinding
+			else
+				ok = MovementController.MoveDirect(state, target) -- simple move
+				if ok and state and model.PrimaryPart then
+					state.lastKnownPosition = model.PrimaryPart.CFrame
+				end
+			end
 			return ok
 		else
 			-- non-blocking: run in background
 			task.spawn(function()
-				MovementController.MoveTo(state, target)
+				if isPlayerChar then
+					MovementController.MoveTo(model, target) -- pathfinding
+				else
+					local ok2 = MovementController.MoveDirect(state, target) -- simple move
+					if ok2 and state and model.PrimaryPart then
+						state.lastKnownPosition = model.PrimaryPart.CFrame
+					end
+				end
 			end)
 			return true
 		end

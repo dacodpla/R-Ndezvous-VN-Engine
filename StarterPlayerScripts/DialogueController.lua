@@ -67,6 +67,10 @@ local animFolder = ReplicatedStorage:WaitForChild("Animations")
 local FacePresets = ReplicatedStorage:WaitForChild("FacePresets")
 local DialogueEvent = ReplicatedStorage:WaitForChild("DialogueEvent")
 
+local ActionExecutor = require(ReplicatedStorage:WaitForChild("ActionExecutor"))
+local AfterDialogueHandler = require(ReplicatedStorage:WaitForChild("AfterDialogueHandler"))
+local StoryFlags = require(ReplicatedStorage:WaitForChild("StoryFlags"))
+
 local activeDialogueTracks = {}
 local cachedTracks = {}
 local originalRotations = {}
@@ -77,7 +81,7 @@ local SPEAKER_SCAN_RADIUS = 100
 local BGMHandler = require(ReplicatedStorage:WaitForChild("BGMHandler"))
 BGMHandler.PlayPersistent("Main")
 
--- 🔊 Play a short typing sound (one-shot)
+-- ?? Play a short typing sound (one-shot)
 local function playTypeSound(soundName)
 	if not soundName then return end
 	local template = typeSoundFolder:FindFirstChild(soundName)
@@ -151,7 +155,7 @@ local function setFace(characterModel, faceName)
 		return
 	end
 
-	-- 🌟 Save original face texture (only once)
+	-- ?? Save original face texture (only once)
 	if not originalFaces[characterModel] then
 		originalFaces[characterModel] = existingDecal.Texture
 	end
@@ -165,7 +169,7 @@ local function setFace(characterModel, faceName)
 	end
 end
 
--- 🌍 Share for ModeManager reset
+-- ?? Share for ModeManager reset
 _G.OriginalDialogueFaces = originalFaces
 local function setHead(characterModel, headName)
 	if not characterModel or not characterModel:IsA("Model") then return end
@@ -232,7 +236,7 @@ local function setHead(characterModel, headName)
 		return
 	end
 
-	-- 🔧 Set ManualWeld if needed (fallback for AddAccessory bug)
+	-- ?? Set ManualWeld if needed (fallback for AddAccessory bug)
 	local attachmentOnHead = head:FindFirstChild("FaceCenterAttachment")
 	local attachmentOnAccessory = handle:FindFirstChild("FaceCenterAttachment")
 
@@ -414,7 +418,7 @@ local function playAnimation(characterModel, animName)
 	for _, otherTrack in ipairs(animator:GetPlayingAnimationTracks()) do
 		local isPersistent = CollectionService:HasTag(otherTrack, "PersistentAnimation")
 
-		-- ❗ Special rule for Takumi: stop everything (even persistent)
+		-- ? Special rule for Takumi: stop everything (even persistent)
 		local isTakumi = (characterName == player.Name or characterName == "Takumi")
 
 		if isTakumi or not isPersistent then
@@ -463,17 +467,17 @@ local function playIdleAnimations()
 	end
 end
 
--- 🖱️ Wait for click or spacebar input
+-- ??? Wait for click or spacebar input
 local function waitForInput()
 	local proceed = false
 
-	-- 👆 Capture click
+	-- ?? Capture click
 	local clickConnection = clickArea.MouseButton1Click:Connect(function()
 		print("Click received")
 		proceed = true
 	end)
 
-	-- ⌨️ Capture spacebar press
+	-- ?? Capture spacebar press
 	local keyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if not gameProcessed and input.KeyCode == Enum.KeyCode.Space then
 			print("Spacebar received")
@@ -484,13 +488,13 @@ local function waitForInput()
 	-- Wait for either input
 	repeat task.wait() until proceed
 
-	-- 🔌 Disconnect listeners
+	-- ?? Disconnect listeners
 	clickConnection:Disconnect()
 	keyConnection:Disconnect()
 end
 
 
--- ▶️ Run the full dialogue list
+-- ?? Run the full dialogue list
 local function runDialogue(dialogueData)
 	if not dialogueData or typeof(dialogueData) ~= "table" then
 		warn("[DialogueController] Invalid dialogueData")
@@ -502,7 +506,22 @@ local function runDialogue(dialogueData)
 		globalOptions.disableFacePlayer = dialogueData.disableFacePlayer
 	end
 
-	--	
+	-- Build actor map
+	local actors = {}
+
+	-- Map all known dialogue NPCs in Workspace
+	for _, npc in ipairs(workspace:GetChildren()) do
+		if npc:IsA("Model") and npc:FindFirstChild("Humanoid") then
+			local dialogueName = npc:GetAttribute("DialogueName")
+			if dialogueName then
+				actors[dialogueName] = npc
+			end
+		end
+	end
+
+	-- Add player character
+	actors[MainCharacterName] = player.Character
+	actors[player.Name] = player.Character
 
 	local i = 1
 	while i <= #dialogueData do
@@ -511,7 +530,7 @@ local function runDialogue(dialogueData)
 
 		local activeSpeakerModels = {}
 
-		-- 🛑 TRANSITION
+		-- ?? TRANSITION
 		if line.transition and _G.PlayBlackTransition then
 			_G.PlayBlackTransition(line.transition)
 			task.wait(0.6)
@@ -519,7 +538,7 @@ local function runDialogue(dialogueData)
 			continue
 		end
 
-		-- 🚪 TELEPORT
+		-- ?? TELEPORT
 		if line.teleport then
 			local data = line.teleport
 			local char = player.Character or player.CharacterAdded:Wait()
@@ -540,9 +559,9 @@ local function runDialogue(dialogueData)
 			continue
 		end
 
-		-- 💬 TEXT + SFX/ANIM
+		-- ?? TEXT + SFX/ANIM
 		if line.text and line.speaker then
-			-- 🧠 Find closest character model matching speaker name
+			-- ?? Find closest character model matching speaker name
 			local function findClosestCharacter(name, originPos, maxDist)
 				local closest = nil
 				local shortestDistance = math.huge
@@ -578,7 +597,7 @@ local function runDialogue(dialogueData)
 					originalRotations[charModel] = charModel:GetPrimaryPartCFrame()
 				end
 
-				-- 🔁 Face NPC toward player and vice versa and more
+				-- ?? Face NPC toward player and vice versa and more
 				if charModel ~= player.Character then
 					local npcRoot = charModel.PrimaryPart
 					local playerRoot = player.Character and player.Character.PrimaryPart
@@ -651,7 +670,7 @@ local function runDialogue(dialogueData)
 					end
 				end
 
-				-- 📱 CHOICES
+				-- ?? CHOICES
 				-- Handle choice system
 				if line.choices then
 					local frame = gui:WaitForChild("ChoicesFrame")
@@ -749,8 +768,25 @@ local function runDialogue(dialogueData)
 				_G.ActiveDialogueSpeaker[charModel.Name] = true
 				_G.CameraFocusTarget = charModel
 
+				-- Dialogue choreography (movement)
+				local context = { player = player, actors = characters } -- actors is your map of speaker?model
+				if line.actions then
+					print("[DialogueController] Sending actions to server for", line.speaker or "unknown")
+					DialogueEvent:FireServer("RunActions", line.actions)
+				end
+
+
 				typeText(line.text, line.speed or 0.03, line.typeSound, line.effect)
 				waitForInput()
+
+				-- Post-dialogue effects (story flags, map changes, etc.)
+				if line.afterDialogue then
+					print("[DialogueController] Sending afterDialogue to server")
+					DialogueEvent:FireServer("AfterDialogue", line.afterDialogue)
+				end
+
+
+
 
 				activeSpeakerModels[charModel] = true
 				_G.ActiveDialogueSpeaker[charModel.Name] = nil
@@ -782,14 +818,14 @@ local function runDialogue(dialogueData)
 		end
 		originalRotations = {}
 
-		-- 🔄 Reset speaker and camera focus
+		-- ?? Reset speaker and camera focus
 		_G.ActiveDialogueSpeaker = nil
 		_G.CameraFocusTarget = nil
 		if _G.ResetCameraFocus then
 			_G.ResetCameraFocus()
 		end
 
-		-- 👋 Exit storytelling mode
+		-- ?? Exit storytelling mode
 		_G.EnterRoamingMode()
 
 		if _G.RestoreDynamicHeads then

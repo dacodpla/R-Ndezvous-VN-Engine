@@ -2,7 +2,7 @@ local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 
 -- ? Toggle this to show or hide triggers in play mode
-local DEBUG_MODE = false
+local DEBUG_MODE = true
 
 -- Only hide if we're in Play mode (not in the editor)
 if RunService:IsRunning() then

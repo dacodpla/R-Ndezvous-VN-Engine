@@ -8,6 +8,10 @@ local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local vnGui = player:WaitForChild("PlayerGui"):WaitForChild("DialogueGui")
 
+-- Roblox PlayerModule controls
+local PlayerModule = require(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
+local Controls = PlayerModule:GetControls()
+
 --local AUTO_START_DIALOGUE = ""
 
 -- Mode state
@@ -32,6 +36,29 @@ for _, descendant in ipairs(workspace:GetDescendants()) do
 	if descendant:IsA("ProximityPrompt") then
 		CollectionService:AddTag(descendant, "DialoguePrompt")
 	end
+end
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local function setPlayerControls(enabled)
+	local playerModule = player:WaitForChild("PlayerScripts"):FindFirstChild("PlayerModule")
+	if playerModule then
+		local controlModule = require(playerModule:WaitForChild("ControlModule"))
+		if enabled then
+			controlModule:Enable()
+		else
+			controlModule:Disable()
+		end
+	end
+end
+
+_G.DisableControls = function()
+	setPlayerControls(false)
+end
+
+_G.EnableControls = function()
+	setPlayerControls(true)
 end
 
 local function setAllProximityPromptsEnabled(enabled)
@@ -76,9 +103,8 @@ _G.EnterStoryMode = function(dialogueData, npcName)
 		_G.ZoomTo(40, 1)
 	end
 
-	-- Disable player movement
-	humanoid.WalkSpeed = 0
-	humanoid.JumpPower = 0
+	-- Disable WASD + Jump
+	_G.DisableControls()
 
 	-- Enable VN GUI safely
 	if vnGui then
@@ -96,6 +122,13 @@ _G.EnterStoryMode = function(dialogueData, npcName)
 	-- Tell server NPC should pause patrol
 	if npcName then
 		ReplicatedStorage:WaitForChild("DialogueEvent"):FireServer("Start", npcName)
+
+		-- ?? Pause the NPC’s movement locally
+		local MovementController = require(ReplicatedStorage:WaitForChild("MovementController"))
+		local npcModel = workspace:FindFirstChild(npcName)
+		if npcModel then
+			MovementController.PauseMovement(npcModel)
+		end
 	end
 
 	-- Wait for DialogueController
@@ -133,14 +166,17 @@ local function enterRoamingMode()
 		_G.ZoomTo(90, 1)
 	end
 
-	-- Restore movement
-	humanoid.WalkSpeed = 16
+	-- Re-enable WASD
+	_G.EnableControls()
+
+	-- Restore humanoid properties
+	humanoid.WalkSpeed = 8
 	humanoid.JumpPower = 50
 
 	-- Hide VN GUI
 	if vnGui then
 		vnGui.Enabled = false
-		-- clear old text so it doesnâ€™t stick
+		-- clear old text so it doesn’t stick
 		local dialogueText = vnGui:FindFirstChild("DialogueText", true)
 		if dialogueText then
 			dialogueText.Text = ""

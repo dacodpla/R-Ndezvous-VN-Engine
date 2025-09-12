@@ -8,7 +8,7 @@ local promptConnections = {}
 
 print("[ProximityPromptHandler] Loaded. _G.EnterStoryMode =", _G.EnterStoryMode)
 
--- 🔁 Clean old connections if any
+-- ?? Clean old connections if any
 for _, conn in promptConnections do
 	if typeof(conn) == "RBXScriptConnection" then
 		conn:Disconnect()
@@ -26,7 +26,7 @@ else
 	end
 end
 
--- 🔍 Scan for all ProximityPrompts in the Workspace
+-- ?? Scan for all ProximityPrompts in the Workspace
 for _, model in workspace:GetDescendants() do
 	if model:IsA("Model") and model:FindFirstChildWhichIsA("ProximityPrompt", true) then
 		local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -44,7 +44,7 @@ for _, model in workspace:GetDescendants() do
 
 			print("Triggering dialogue:", dialogueName)
 
-			-- 🧠 Load dialogue data from module
+			-- ?? Load dialogue data from module
 			local result = nil
 			local success, requireResult = pcall(function()
 				local module = ReplicatedStorage:FindFirstChild("DialogueModules") and ReplicatedStorage.DialogueModules:FindFirstChild(dialogueName)
@@ -72,7 +72,7 @@ for _, model in workspace:GetDescendants() do
 			print("Type of result:", typeof(result))
 			print("Result content:", result)
 
-			-- ✅ Now we have dialogue data, enter story mode and pass it
+			-- ? Now we have dialogue data, enter story mode and pass it
 			print("[ProximityPromptHandler] About to call _G.EnterStoryMode. Current value:", _G.EnterStoryMode)
 			print("[ProximityPromptHandler] About to call _G.EnterStoryMode. Current value:", _G.EnterStoryMode)
 			if _G.EnterStoryMode then
